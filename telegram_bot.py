@@ -43,13 +43,21 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
 
 def start_health_server():
     try:
-        port = int(os.environ.get("PORT", 8000))
-    except Exception:
-        port = 8000
-    server = socketserver.TCPServer(("", port), HealthHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    logger.info(f"Health server started on port {port}")
+        port = int(os.environ.get("PORT", 10000))
+        if port <= 0:
+            raise ValueError("Port must be positive")
+    except (ValueError, TypeError):
+        port = 10000
+    
+    try:
+        server = socketserver.TCPServer(("", port), HealthHandler, bind_and_activate=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        logger.info(f"Health server started on port {port}")
+        print(f"✅ Health server running on port {port}")
+    except OSError as e:
+        logger.error(f"Failed to start health server on port {port}: {e}")
+        print(f"❌ Failed to bind health server to port {port}")
 
 # call this before initializing the bot
 start_health_server()
