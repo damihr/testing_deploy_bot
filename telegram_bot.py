@@ -1,6 +1,9 @@
 import os
 import logging
 import asyncio
+import threading
+import http.server
+import socketserver
 from typing import Dict, List, Optional
 import pandas as pd
 import requests
@@ -20,6 +23,37 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# --- start tiny health server (to satisfy Render's port check) ---
+class HealthHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        # only respond on root path; otherwise 404
+        if self.path == '/' or self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        # silence default logging or route to our logger
+        logger.debug("%s - - %s" % (self.client_address[0], format%args))
+
+def start_health_server():
+    try:
+        port = int(os.environ.get("PORT", 8000))
+    except Exception:
+        port = 8000
+    server = socketserver.TCPServer(("", port), HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    logger.info(f"Health server started on port {port}")
+
+# call this before initializing the bot
+start_health_server()
+# --- end health server ---
 
 # Bot configuration
 BOT_TOKEN = "8241417536:AAEz1MSmcbfR7BNlcZmi60p1LUJXBntZPC4"
