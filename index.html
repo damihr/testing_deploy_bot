@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Bes Saiman Group - Управление инвентарем</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-icon">🔧</span>
+                    <h1>Bes Saiman Group</h1>
+                </div>
+                <button class="btn btn-primary" onclick="fetchDataFromGoogleSheets()">
+                    <span>🔄 Синхронизация</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <div class="container">
+            <!-- Navigation Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="showTab('dashboard')">📊 Панель управления</button>
+                <button class="tab-btn" onclick="showTab('inventory')">📦 Инвентарь</button>
+                <button class="tab-btn" onclick="showTab('analytics')">📈 Аналитика</button>
+            </div>
+
+            <!-- Dashboard Tab -->
+            <div id="dashboard" class="tab-content active">
+                <div class="section-header">
+                    <h2>Панель управления</h2>
+                    <p>Добро пожаловать в систему управления инвентарем</p>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📦</div>
+                        <div class="stat-content">
+                            <h3 id="totalInstruments">0</h3>
+                            <p>Всего инструментов</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-content">
+                            <h3 id="availableInstruments">0</h3>
+                            <p>Доступно</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⚠️</div>
+                        <div class="stat-content">
+                            <h3 id="lowStockInstruments">0</h3>
+                            <p>Низкий запас</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🏭</div>
+                        <div class="stat-content">
+                            <h3 id="totalManufacturers">0</h3>
+                            <p>Производителей</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inventory Tab -->
+            <div id="inventory" class="tab-content">
+                <div class="section-header">
+                    <h2>Инвентарь инструментов</h2>
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="🔍 Поиск инструментов..." onkeyup="filterInventory()">
+                    </div>
+                </div>
+
+                <!-- Inventory Table -->
+                <div class="table-container">
+                    <table class="inventory-table">
+                        <thead>
+                            <tr>
+                                <th>№</th>
+                                <th>Наименование</th>
+                                <th>Модель</th>
+                                <th>Производитель</th>
+                                <th>Характеристика</th>
+                                <th>Количество</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventoryTableBody">
+                            <!-- Data will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination" id="pagination">
+                    <!-- Pagination will be generated here -->
+                </div>
+            </div>
+
+            <!-- Analytics Tab -->
+            <div id="analytics" class="tab-content">
+                <div class="section-header">
+                    <h2>Аналитика и отчеты</h2>
+                    <p>Статистика по инвентарю и производителям</p>
+                </div>
+
+                <div class="analytics-grid">
+                    <div class="chart-container">
+                        <h3>Распределение по производителям</h3>
+                        <canvas id="manufacturerChart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <h3>Статус запасов</h3>
+                        <canvas id="stockChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="reports-grid">
+                    <div class="report-card">
+                        <h3>Топ-10 инструментов</h3>
+                        <div id="topInstruments" class="report-list">
+                            <!-- Top instruments will be loaded here -->
+                        </div>
+                    </div>
+                    <div class="report-card">
+                        <h3>Инструменты с низким запасом</h3>
+                        <div id="lowStockList" class="report-list">
+                            <!-- Low stock items will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
