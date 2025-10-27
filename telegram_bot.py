@@ -26,16 +26,36 @@ logger = logging.getLogger(__name__)
 
 # --- start tiny health server (to satisfy Render's port check) ---
 class HealthHandler(http.server.BaseHTTPRequestHandler):
+    def _send_ok_response(self):
+        """Send 200 OK response for any valid method"""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(b'OK')
+    
     def do_GET(self):
-        # only respond on root path; otherwise 404
+        if self.path == '/' or self.path == '/health':
+            self._send_ok_response()
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def do_HEAD(self):
+        """Handle HEAD requests (used by uptime monitors)"""
         if self.path == '/' or self.path == '/health':
             self.send_response(200)
             self.send_header('Content-Type', 'text/plain; charset=utf-8')
             self.end_headers()
-            self.wfile.write(b'OK')
         else:
             self.send_response(404)
             self.end_headers()
+    
+    def do_OPTIONS(self):
+        """Handle OPTIONS requests (CORS preflight)"""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.send_header('Allow', 'GET, HEAD, OPTIONS')
+        self.end_headers()
 
     def log_message(self, format, *args):
         # silence default logging or route to our logger
