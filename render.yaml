@@ -9,4 +9,6 @@ services:
     envVars:
       - key: BOT_TOKEN
         sync: false
+      - key: SERVICE_ACCOUNT_JSON
+        sync: false
 

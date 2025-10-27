@@ -12,6 +12,7 @@ from googleapiclient.http import MediaFileUpload
 import json
 import openpyxl
 from openpyxl import load_workbook
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(
@@ -38,18 +39,26 @@ class InventoryBot:
         self.google_sheet_id = GOOGLE_SHEET_ID  # Use existing sheet ID
         self.user_states = {}  # Для отслеживания состояний пользователей
         self.setup_google_services()
-        self.load_local_inventory()
-        self.update_google_sheet()  # Update Google Sheet on startup
+        self.download_excel_from_google_drive()  # Download latest Excel from Google Drive on startup
     
     def setup_google_services(self):
         """Setup Google Sheets and Drive API connections"""
         try:
-            if os.path.exists('service_account.json'):
+            # Check if service account JSON is provided as environment variable
+            if os.getenv('SERVICE_ACCOUNT_JSON'):
+                logger.info("Loading service account from environment variable")
+                credentials_data = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
+                credentials = service_account.Credentials.from_service_account_info(
+                    credentials_data, scopes=SCOPES)
+                self.service = build('sheets', 'v4', credentials=credentials)
+                self.drive_service = build('drive', 'v3', credentials=credentials)
+                logger.info("Google services initialized with environment variable")
+            elif os.path.exists('service_account.json'):
                 credentials = service_account.Credentials.from_service_account_file(
                     'service_account.json', scopes=SCOPES)
                 self.service = build('sheets', 'v4', credentials=credentials)
                 self.drive_service = build('drive', 'v3', credentials=credentials)
-                logger.info("Google services initialized with service account")
+                logger.info("Google services initialized with service account file")
             else:
                 logger.warning("No service account found. Google Sheets sync will be disabled.")
         except Exception as e:
@@ -162,6 +171,37 @@ class InventoryBot:
             
         except Exception as e:
             logger.error(f"Error updating Google Sheet: {e}")
+            return False
+    
+    def download_excel_from_google_drive(self) -> bool:
+        """Download the latest Excel file from Google Drive and overwrite local copy"""
+        if not self.drive_service:
+            logger.warning("Google Drive service not available")
+            return False
+        
+        try:
+            logger.info(f"Downloading Excel file from Google Drive: {self.google_sheet_id}")
+            
+            # Request the file content (get_media for native files, not export_media)
+            request = self.drive_service.files().get_media(
+                fileId=self.google_sheet_id
+            )
+            
+            # Download the file content
+            excel_content = request.execute()
+            
+            # Save to local file
+            with open(LOCAL_EXCEL_FILE, 'wb') as f:
+                f.write(excel_content)
+            
+            logger.info(f"Successfully downloaded Excel file from Google Drive")
+            
+            # Reload the local inventory after downloading
+            self.load_local_inventory()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error downloading Excel from Google Drive: {e}")
             return False
     
     def update_instrument_amount(self, instrument_name: str, new_amount: str) -> bool:
