@@ -6,10 +6,11 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python telegram_bot.py"
     autoDeploy: true
-    pythonVersion: "3.12"
     envVars:
       - key: BOT_TOKEN
         sync: false
       - key: SERVICE_ACCOUNT_JSON
         sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.9"
 
