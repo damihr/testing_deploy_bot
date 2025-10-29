@@ -84,8 +84,7 @@ start_health_server()
 # --- end health server ---
 
 # Bot configuration
-# Get BOT_TOKEN from environment variable (for Render) or use fallback (for local)
-BOT_TOKEN = os.getenv('BOT_TOKEN', "8208133731:AAG916KSSKK06qesQ-N5q6SK5HoZ5d_HcF8")
+BOT_TOKEN = "8241417536:AAEz1MSmcbfR7BNlcZmi60p1LUJXBntZPC4"
 LOCAL_EXCEL_FILE = "Расходники 9 октября.xlsx"
 LOCAL_HISTORY_FILE = "История_изменений.xlsx"  # Local Excel file for history
 GOOGLE_SHEET_ID = "1McGe_kQVIonC4soSTi1nPjH4WlGI0vlS"  # Existing Google Sheet ID for inventory
@@ -2405,10 +2404,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 def main():
     """Main function to run the bot"""
-    # Log token source (without exposing the actual token)
-    token_source = "environment variable" if os.getenv('BOT_TOKEN') else "fallback (local)"
-    logger.info(f"Bot token loaded from: {token_source}")
-    
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
