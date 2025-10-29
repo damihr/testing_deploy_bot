@@ -84,24 +84,73 @@ start_health_server()
 # --- end health server ---
 
 # Bot configuration
-BOT_TOKEN = "8241417536:AAEz1MSmcbfR7BNlcZmi60p1LUJXBntZPC4"
+BOT_TOKEN = "8208133731:AAG916KSSKK06qesQ-N5q6SK5HoZ5d_HcF8"
 LOCAL_EXCEL_FILE = "Расходники 9 октября.xlsx"
-GOOGLE_SHEET_ID = "1McGe_kQVIonC4soSTi1nPjH4WlGI0vlS"  # Existing Google Sheet ID
+LOCAL_HISTORY_FILE = "История_изменений.xlsx"  # Local Excel file for history
+GOOGLE_SHEET_ID = "1McGe_kQVIonC4soSTi1nPjH4WlGI0vlS"  # Existing Google Sheet ID for inventory
+HISTORY_SHEET_ID = "18MYIDQNf7_ECj78D4qG1u0bOZonQMRwy"  # Separate Google Sheet ID for history
 GOOGLE_SHEET_NAME = "Inventory Bot Sheet"
 GOOGLE_API_KEY = "AIzaSyDkcrwCG5UimwKx4oFdIXzjH_l8UaeOtX4"
+HISTORY_FILE = "change_history.json"  # History log file
 
 # Google Sheets API scopes
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+
+def auto_resize_excel_columns(excel_file_path: str):
+    """Auto-resize Excel columns to fit content"""
+    try:
+        workbook = openpyxl.load_workbook(excel_file_path)
+        worksheet = workbook.active
+        
+        # Auto-resize columns based on content
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            
+            for cell in column:
+                try:
+                    if cell.value:
+                        cell_length = len(str(cell.value))
+                        if cell_length > max_length:
+                            max_length = cell_length
+                except:
+                    pass
+            
+            # Set column width (add some padding)
+            adjusted_width = min(max_length + 2, 50)  # Max width 50 characters
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        workbook.save(excel_file_path)
+        logger.info(f"Auto-resized columns in {excel_file_path}")
+        
+    except Exception as e:
+        logger.error(f"Error auto-resizing columns in {excel_file_path}: {e}")
 
 class InventoryBot:
     def __init__(self):
         self.service = None
         self.drive_service = None
         self.inventory_data = None
-        self.google_sheet_id = GOOGLE_SHEET_ID  # Use existing sheet ID
+        self.google_sheet_id = GOOGLE_SHEET_ID  # Inventory sheet ID
+        self.history_sheet_id = HISTORY_SHEET_ID  # Separate history sheet ID
         self.user_states = {}  # Для отслеживания состояний пользователей
+        self.history_data = []  # Store history data in memory (list of dicts)
         self.setup_google_services()
+        logger.info("About to download inventory Excel...")
         self.download_excel_from_google_drive()  # Download latest Excel from Google Drive on startup
+        logger.info("About to download history Excel...")
+        self.download_history_from_google_drive()  # Download history Excel from Google Drive on startup
+        logger.info("Done downloading files.")
+        
+        # Load history from local Excel file
+        try:
+            self.history_data = self.load_local_history()
+            if self.history_data:
+                logger.info(f"✅ Loaded {len(self.history_data)} history entries from local history file")
+            else:
+                logger.info("⚠️ No history entries found")
+        except Exception as e:
+            logger.error(f"❌ Error loading history: {e}")
     
     def setup_google_services(self):
         """Setup Google Sheets and Drive API connections"""
@@ -127,14 +176,14 @@ class InventoryBot:
             logger.error(f"Error setting up Google services: {e}")
     
     def load_local_inventory(self) -> pd.DataFrame:
-        """Load inventory data from local Excel file"""
+        """Load inventory data from local Excel file Sheet1"""
         try:
             if not os.path.exists(LOCAL_EXCEL_FILE):
                 logger.error(f"Local Excel file '{LOCAL_EXCEL_FILE}' not found")
                 return pd.DataFrame()
             
-            # Load Excel file
-            df = pd.read_excel(LOCAL_EXCEL_FILE)
+            # Load Excel file Sheet1 (inventory)
+            df = pd.read_excel(LOCAL_EXCEL_FILE, sheet_name=0)  # sheet_name=0 is Sheet1
             
             # Replace NaN values with 0 or empty string
             df = df.fillna(0)
@@ -146,6 +195,10 @@ class InventoryBot:
             
             self.inventory_data = df
             logger.info(f"Loaded {len(df)} instruments from local Excel file")
+            
+            # CRITICAL: DO NOT reload Sheet2 here - it's already loaded in __init__ and stored in memory
+            # Only reload Sheet2 if we explicitly want to (which we don't here)
+            
             return df
             
         except Exception as e:
@@ -258,12 +311,129 @@ class InventoryBot:
             
             logger.info(f"Successfully downloaded Excel file from Google Drive")
             
+            # Auto-resize columns after download
+            auto_resize_excel_columns(LOCAL_EXCEL_FILE)
+            
             # Reload the local inventory after downloading
             self.load_local_inventory()
             return True
             
         except Exception as e:
             logger.error(f"Error downloading Excel from Google Drive: {e}")
+            return False
+    
+    def download_history_from_google_drive(self) -> bool:
+        """Download the history Excel file from Google Drive and overwrite local copy"""
+        if not self.drive_service:
+            logger.warning("Google Drive service not available")
+            return False
+        
+        try:
+            logger.info(f"Downloading history Excel file from Google Drive: {self.history_sheet_id}")
+            
+            # Request the file content
+            request = self.drive_service.files().get_media(
+                fileId=self.history_sheet_id
+            )
+            
+            # Download the file content
+            excel_content = request.execute()
+            
+            # Save to local file
+            with open(LOCAL_HISTORY_FILE, 'wb') as f:
+                f.write(excel_content)
+            
+            logger.info(f"Successfully downloaded history Excel file from Google Drive")
+            
+            # Auto-resize columns after download
+            auto_resize_excel_columns(LOCAL_HISTORY_FILE)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error downloading history Excel from Google Drive: {e}")
+            return False
+    
+    def load_local_history(self) -> list:
+        """Load history from local Excel file"""
+        try:
+            if not os.path.exists(LOCAL_HISTORY_FILE):
+                logger.warning(f"Local history file '{LOCAL_HISTORY_FILE}' not found")
+                return []
+            
+            # Load Excel file
+            df = pd.read_excel(LOCAL_HISTORY_FILE)
+            
+            # Convert to list of dicts
+            history = []
+            for _, row in df.iterrows():
+                history.append({
+                    'number': str(row.iloc[0]) if len(row) > 0 else '',
+                    'name': str(row.iloc[1]) if len(row) > 1 else '',
+                    'action': str(row.iloc[2]) if len(row) > 2 else '',
+                    'instrument_name': str(row.iloc[3]) if len(row) > 3 else '',
+                    'change': str(row.iloc[4]) if len(row) > 4 else '',
+                    'time': str(row.iloc[5]) if len(row) > 5 else ''
+                })
+            
+            # Skip header row if present
+            if history and history[0]['number'] == '№':
+                history = history[1:]
+            
+            return history
+            
+        except Exception as e:
+            logger.error(f"Error loading local history: {e}")
+            return []
+    
+    def save_local_history(self):
+        """Save history data to local Excel file"""
+        try:
+            if not self.history_data:
+                return
+            
+            # Create DataFrame
+            df = pd.DataFrame(self.history_data)
+            
+            # Save to local Excel file
+            df.to_excel(LOCAL_HISTORY_FILE, index=False)
+            logger.info("Saved history data to local Excel file")
+            
+            # Auto-resize columns
+            auto_resize_excel_columns(LOCAL_HISTORY_FILE)
+            
+        except Exception as e:
+            logger.error(f"Error saving local history: {e}")
+    
+    def upload_history_to_google_drive(self) -> bool:
+        """Upload history Excel file to Google Drive"""
+        if not self.drive_service:
+            logger.warning("Google Drive service not available")
+            return False
+        
+        try:
+            # Save local history first
+            self.save_local_history()
+            
+            # Upload to Google Drive
+            file_metadata = {
+                'name': LOCAL_HISTORY_FILE
+            }
+            
+            media = MediaFileUpload(LOCAL_HISTORY_FILE, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            
+            # Update the existing file in Google Drive
+            self.drive_service.files().update(
+                fileId=self.history_sheet_id,
+                body=file_metadata,
+                media_body=media
+            ).execute()
+            
+            logger.info(f"Uploaded history Excel file to Google Drive: {self.history_sheet_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error uploading history to Google Drive: {e}")
             return False
     
     def update_instrument_amount(self, instrument_name: str, new_amount: str) -> bool:
@@ -301,7 +471,7 @@ class InventoryBot:
             return False
     
     def save_local_inventory(self):
-        """Save current inventory data to local Excel file"""
+        """Save current inventory data to local Excel file, preserving Sheet2 (history)"""
         try:
             if self.inventory_data is not None:
                 # Clean data before saving
@@ -313,8 +483,12 @@ class InventoryBot:
                     if df_to_save[col].dtype == 'object':  # Text columns
                         df_to_save[col] = df_to_save[col].replace(0, '')
                 
+                # Save only inventory data (Sheet1), history is in separate file
                 df_to_save.to_excel(LOCAL_EXCEL_FILE, index=False)
                 logger.info("Saved inventory data to local Excel file")
+                
+                # Auto-resize columns
+                auto_resize_excel_columns(LOCAL_EXCEL_FILE)
         except Exception as e:
             logger.error(f"Error saving local inventory: {e}")
     
@@ -323,6 +497,12 @@ class InventoryBot:
         if self.google_sheet_id:
             return f"https://docs.google.com/spreadsheets/d/{self.google_sheet_id}"
         return "Google Sheet not created yet"
+    
+    def get_history_sheet_url(self) -> str:
+        """Get the URL of the history Google Sheet"""
+        if self.history_sheet_id:
+            return f"https://docs.google.com/spreadsheets/d/{self.history_sheet_id}"
+        return "History Sheet not created yet"
 
     def safe_get_text(self, row, col_index: int, default: str = "") -> str:
         """Safely get text value from row, handling NaN values"""
@@ -336,6 +516,65 @@ class InventoryBot:
         except:
             return default
 
+    def read_history_from_sheet(self) -> list:
+        """Read history from separate history Google Sheet (6 columns)"""
+        try:
+            if not self.service:
+                return []
+            
+            # Read from history sheet's first sheet, columns A-F (6 columns)
+            range_name = 'Sheet1!A:F'
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=self.history_sheet_id,
+                range=range_name
+            ).execute()
+            
+            values = result.get('values', [])
+            
+            # Skip header row and return data rows as list of dicts
+            if len(values) > 1:
+                data_rows = []
+                for row in values[1:]:  # Skip header row
+                    if len(row) >= 6:  # Ensure we have all 6 columns
+                        data_rows.append({
+                            'number': row[0] if len(row) > 0 else '',
+                            'name': row[1] if len(row) > 1 else '',
+                            'action': row[2] if len(row) > 2 else '',
+                            'instrument_name': row[3] if len(row) > 3 else '',
+                            'change': row[4] if len(row) > 4 else '',
+                            'time': row[5] if len(row) > 5 else ''
+                        })
+                return data_rows
+            
+            return []
+        except Exception as e:
+            print(f"Error reading history from sheet: {e}")
+            return []
+    
+    def write_history_to_sheet(self, entry_num: str, username: str, action: str, instrument_name: str, change: str, date_time: str):
+        """Write a new history entry locally and upload to Google Drive"""
+        try:
+            # Update in-memory history_data
+            self.history_data.append({
+                'number': entry_num,
+                'name': username,
+                'action': action,
+                'instrument_name': instrument_name,
+                'change': change,
+                'time': date_time
+            })
+            logger.info(f"History data updated in memory. Total entries: {len(self.history_data)}")
+            
+            # Save to local Excel file
+            self.save_local_history()
+            
+            # Upload to Google Drive
+            self.upload_history_to_google_drive()
+            
+            logger.info(f"History entry written and uploaded to Google Drive")
+        except Exception as e:
+            logger.error(f"Error writing history to sheet: {e}")
+
 # Initialize bot
 bot = InventoryBot()
 
@@ -345,6 +584,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [InlineKeyboardButton("📦 Просмотр инвентаря", callback_data="view_inventory")],
         [InlineKeyboardButton("🔍 Поиск инструментов", callback_data="search_instruments")],
         [InlineKeyboardButton("🆕 Добавить инструмент", callback_data="add_new_instrument")],
+        [InlineKeyboardButton("📜 История изменений", callback_data="view_history")],
         [InlineKeyboardButton("🔗 Ссылка на таблицу", callback_data="show_sheet_link")],
         [InlineKeyboardButton("🔄 Синхронизация", callback_data="force_sync")]
     ]
@@ -358,52 +598,182 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• 🔍 Искать нужные инструменты\n"
         "• 🆕 Добавлять новые инструменты\n"
         "• ✏️ Редактировать количество\n"
+        "• 📜 Просматривать историю изменений\n"
         "• 🔄 Синхронизировать с Google Таблицей\n\n"
         "Выберите нужную функцию:",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
 
+# History management functions
+def log_change(user_id: int, username: str, action_type: str, instrument_name: str, change_desc: str) -> None:
+    """Log a change to separate history Google Sheet (6 columns)"""
+    try:
+        logger.info(f"📝 Logging change: action_type={action_type}, instrument={instrument_name}, change={change_desc}")
+        from datetime import datetime
+        
+        # Format username as @username
+        name = f"@{username}" if username else f"User {user_id}"
+        
+        # Calculate next entry number
+        entry_num = str(len(bot.history_data) + 1)
+        
+        # Get current time
+        date_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Write to history sheet with all 6 columns
+        bot.write_history_to_sheet(entry_num, name, action_type, instrument_name, change_desc, date_time)
+        logger.info(f"✅ Successfully logged change to history")
+        
+    except Exception as e:
+        logger.error(f"Error logging change: {e}")
+
+def get_change_history(limit: int = 3) -> list:
+    """Get recent changes from history sheet"""
+    try:
+        # Use in-memory history_data (already loaded from sheet)
+        history = []
+        for entry in bot.history_data[-limit:]:  # Get last N entries
+            history.append({
+                'username': entry.get('name', ''),
+                'action': entry.get('action', ''),
+                'instrument': entry.get('instrument_name', ''),
+                'change': entry.get('change', ''),
+                'timestamp': entry.get('time', '')
+            })
+        
+        return history
+    except Exception as e:
+        print(f"Error loading history: {e}")
+        return []
+
+async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show change history"""
+    try:
+        query = update.callback_query
+        await query.answer()
+        
+        history = get_change_history(3)  # Show last 3 changes
+        
+        history_url = bot.get_history_sheet_url()
+        
+        if not history:
+            await query.edit_message_text(
+                f"📜 <b>История изменений</b>\n\n"
+                f"🔗 <b>Ссылка на таблицу:</b>\n{history_url}\n\n"
+                f"ℹ️ Пока нет записей об изменениях.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📥 Скачать Excel", callback_data="download_history")],
+                    [InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_menu")]
+                ]),
+                parse_mode='HTML'
+            )
+            return
+        
+        # Format history
+        text = "📜 <b>История изменений</b>\n\n"
+        text += f"🔗 <b>Ссылка на таблицу:</b>\n{history_url}\n\n"
+        text += "<b>Последние 3 изменения:</b>\n\n"
+        
+        for i, entry in enumerate(history, 1):
+            action_str = entry.get('action', '')
+            emoji = "➕" if "добавлен" in action_str or "Added" in action_str else \
+                    "❌" if "удален" in action_str or "Deleted" in action_str else \
+                    "✏️" if "изменен" in action_str or "Changed" in action_str else "📝"
+            
+            text += f"{emoji} <b>{action_str}</b>\n"
+            text += f"👤 {entry['username']}\n"
+            text += f"📅 {entry['timestamp']}\n"
+            text += "\n"
+        
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📥 Скачать Excel", callback_data="download_history")],
+                [InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_menu")]
+            ]),
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        print(f"ERROR in show_history: {e}")
+        logger.error(f"Error in show_history: {e}")
+        try:
+            query = update.callback_query
+            await query.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
+        except:
+            pass
+
+async def download_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Download history as Excel file"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        # Send the local history Excel file
+        if os.path.exists(LOCAL_HISTORY_FILE):
+            with open(LOCAL_HISTORY_FILE, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename='История_изменений.xlsx',
+                    caption="📜 **История изменений**\n\nСкачайте файл Excel для просмотра полной истории."
+                )
+            await query.answer("✅ Файл Excel отправлен!")
+        else:
+            await query.answer("❌ Файл истории не найден", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Error downloading history: {e}")
+        await query.answer("❌ Ошибка при отправке файла", show_alert=True)
+
 async def show_sheet_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show Google Sheet link"""
+    try:
+        query = update.callback_query
+        await query.answer()
+        
+        sheet_url = bot.get_google_sheet_url()
+        
+        await query.edit_message_text(
+            f"🔗 <b>Ссылка на Google Таблицу</b>\n\n"
+            f"📊 <b>Таблица:</b>\n{sheet_url}\n\n"
+            f"📊 <b>Инструментов:</b> {len(bot.inventory_data) if bot.inventory_data is not None else 0}\n\n"
+            f"Нажмите на ссылку выше, чтобы открыть таблицу в браузере.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📥 Скачать Excel", callback_data="download_inventory")],
+                [InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_menu")]
+            ]),
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        print(f"ERROR in show_sheet_link: {e}")
+        logger.error(f"Error in show_sheet_link: {e}")
+        try:
+            query = update.callback_query
+            await query.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
+        except:
+            pass
+
+async def download_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Download inventory as Excel file"""
     query = update.callback_query
     await query.answer()
     
-    sheet_url = bot.get_google_sheet_url()
-    
-    await query.edit_message_text(
-        f"🔗 Ссылка на Google Таблицу\n\n"
-        f"📊 Таблица: {sheet_url}\n\n"
-        f"📄 Файл: {LOCAL_EXCEL_FILE}\n"
-        f"📊 Инструментов: {len(bot.inventory_data) if bot.inventory_data is not None else 0}\n\n"
-        f"Нажмите на ссылку выше, чтобы открыть таблицу в браузере.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_menu")]
-        ])
-    )
-    """Show debug information"""
-    query = update.callback_query
-    await query.answer()
-    
-    debug_text = f"🔍 **Debug Information**\n\n"
-    debug_text += f"📁 **Local Excel File:** {'✅ Found' if os.path.exists(LOCAL_EXCEL_FILE) else '❌ Not found'}\n"
-    debug_text += f"📊 **Data Loaded:** {len(bot.inventory_data) if bot.inventory_data is not None else 0} instruments\n"
-    debug_text += f"📋 **Service Account:** {'✅ Available' if os.path.exists('service_account.json') else '❌ Not found'}\n"
-    debug_text += f"🌐 **Google Sheet:** {'✅ Created' if bot.google_sheet_id else '❌ Not created'}\n"
-    
-    if bot.google_sheet_id:
-        debug_text += f"🔗 **Sheet URL:** {bot.get_google_sheet_url()}\n"
-    
-    keyboard = [
-        [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        debug_text,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    try:
+        # Send the local inventory Excel file
+        if os.path.exists(LOCAL_EXCEL_FILE):
+            with open(LOCAL_EXCEL_FILE, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=LOCAL_EXCEL_FILE,
+                    caption=f"📊 **Инвентарь инструментов**\n\nСкачайте файл Excel для просмотра всех инструментов.\n\n📊 **Всего инструментов:** {len(bot.inventory_data) if bot.inventory_data is not None else 0}"
+                )
+            await query.answer("✅ Файл Excel отправлен!")
+        else:
+            await query.answer("❌ Файл инвентаря не найден", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Error downloading inventory: {e}")
+        await query.answer("❌ Ошибка при отправке файла", show_alert=True)
 
 async def add_new_instrument(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Начать процесс добавления нового инструмента"""
@@ -757,6 +1127,10 @@ async def save_new_instrument(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Обновить Google Sheet
         bot.update_google_sheet()
+        
+        # Log the change
+        username = update.effective_user.username or update.effective_user.first_name or f"User {user_id}"
+        log_change(user_id, username, "Добавление инструмента", data['name'], f"добавление инструмента")
         
         # Очистить состояние пользователя ПОСЛЕ сохранения данных
         del bot.user_states[user_id]
@@ -1255,6 +1629,7 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         [InlineKeyboardButton("📦 Просмотр инвентаря", callback_data="view_inventory")],
         [InlineKeyboardButton("🔍 Поиск инструментов", callback_data="search_instruments")],
         [InlineKeyboardButton("🆕 Добавить инструмент", callback_data="add_new_instrument")],
+        [InlineKeyboardButton("📜 История изменений", callback_data="view_history")],
         [InlineKeyboardButton("🔗 Ссылка на таблицу", callback_data="show_sheet_link")],
         [InlineKeyboardButton("🔄 Синхронизация", callback_data="force_sync")]
     ]
@@ -1527,12 +1902,22 @@ async def handle_amount_update(update: Update, context: ContextTypes.DEFAULT_TYP
     
     instrument_name = str(inventory_data.iloc[instrument_idx].iloc[1]).strip() if len(inventory_data.iloc[instrument_idx]) > 1 else str(inventory_data.iloc[instrument_idx].iloc[0]).strip()
     
+    # Get old amount before updating
+    old_amount = str(inventory_data.iloc[instrument_idx].iloc[5]).strip()  # Количество is column index 5
+    
     # Update the amount in Google Sheets
     success = bot.update_instrument_amount(instrument_name, new_amount)
     
     if success:
         # Reload data to get fresh information
         bot.load_local_inventory()
+        
+        # Log the change with old and new amounts
+        user_id = update.effective_user.id
+        username = update.effective_user.username or update.effective_user.first_name or f"User {user_id}"
+        logger.info(f"About to log history: user={username}, instrument={instrument_name}, change={old_amount}->{new_amount}")
+        log_change(user_id, username, "Изменение количества", instrument_name, f"{old_amount} шт. → {new_amount} шт.")
+        logger.info("History log call returned")
         
         keyboard = [
             [InlineKeyboardButton("🔙 Назад к инвентарю", callback_data="view_inventory")]
@@ -1621,6 +2006,11 @@ async def confirm_delete_instrument(update: Update, context: ContextTypes.DEFAUL
         
         # Update Google Sheet
         bot.update_google_sheet()
+        
+        # Log the change
+        user_id = update.effective_user.id
+        username = update.effective_user.username or update.effective_user.first_name or f"User {user_id}"
+        log_change(user_id, username, "Удаление инструмента", instrument_name, "удаление инструмента")
         
         # Clear user data
         if 'deleting_instrument' in context.user_data:
@@ -1824,6 +2214,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await show_sheet_link(update, context)
     elif query.data == "force_sync":
         await force_sync(update, context)
+    elif query.data == "view_history":
+        await show_history(update, context)
+    elif query.data == "download_history":
+        await download_history(update, context)
+    elif query.data == "download_inventory":
+        await download_inventory(update, context)
     elif query.data == "add_new_instrument":
         await add_new_instrument(update, context)
     elif query.data == "back_to_menu":

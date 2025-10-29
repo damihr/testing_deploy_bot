@@ -21,6 +21,9 @@ venv/
 *.log
 bot_debug.log
 
+# Data files
+change_history.json
+
 # OS
 .DS_Store
 Thumbs.db
