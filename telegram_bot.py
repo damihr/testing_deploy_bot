@@ -84,14 +84,7 @@ start_health_server()
 # --- end health server ---
 
 # Bot configuration
-BOT_TOKEN = "8241417536:AAEz1MSmcbfR7BNlcZmi60p1LUJXBntZPC4"
-LOCAL_EXCEL_FILE = "Расходники 9 октября.xlsx"
-LOCAL_HISTORY_FILE = "История_изменений.xlsx"  # Local Excel file for history
-GOOGLE_SHEET_ID = "1McGe_kQVIonC4soSTi1nPjH4WlGI0vlS"  # Existing Google Sheet ID for inventory
-HISTORY_SHEET_ID = "18MYIDQNf7_ECj78D4qG1u0bOZonQMRwy"  # Separate Google Sheet ID for history
-GOOGLE_SHEET_NAME = "Inventory Bot Sheet"
-GOOGLE_API_KEY = "AIzaSyDkcrwCG5UimwKx4oFdIXzjH_l8UaeOtX4"
-HISTORY_FILE = "change_history.json"  # History log file
+
 
 # Google Sheets API scopes
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
